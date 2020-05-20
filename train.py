@@ -71,7 +71,7 @@ model.summary()
 #define callbacks
 day = str(date.today())
 callbacks = [EarlyStopping(monitor='val_loss', patience=5, verbose=1),
-             ModelCheckpoint('Model_Weights_{day}.h5', save_best_only=True, save_weights_only=True,
+             ModelCheckpoint('Model_Weights_{day}.h5', save_best_only=True, save_weights_only=True),
              ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)]
 
 model.fit_generator(train_gen, 
