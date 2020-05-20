@@ -12,16 +12,18 @@ from keras.preprocessing.image import ImageDataGenerator
 from keras.applications.densenet import DenseNet121
 from keras.layers import Dense, GlobalAveragePooling2D
 from keras.models import Model
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau, CSVLogger
 import keras.backend as K
 import matplotlib.pyplot as plt
-
+from datetime import date
 from utils import *
 K.set_image_data_format('channels_last')
 
 IMGDIR = './images'
 IMG_H = 120
 IMG_W = 120
-batch_size = 1
+batch_size = 8
+val_split = 0.2
 LABELS = ['Cardiomegaly', 'Emphysema', 'Effusion', 'Hernia', 'Infiltration', 
           'Mass', 'Nodule', 'Atelectasis','Pneumothorax','Pleural_Thickening', 
           'Pneumonia', 'Fibrosis', 'Edema', 'Consolidation']
@@ -35,14 +37,18 @@ else:
     print('Leakage check fail :(')
     exit()
     
-np.random.seed(1)
 #get mean and std of 1000 samples in train_val dataset
 np.random.seed(1)
 grab_mean_std = get_norm_data(df, image_dir = IMGDIR, H=IMG_H, W=IMG_W)
 print(f'Sampled mean, std is : {grab_mean_std[0]:.2f}, {grab_mean_std[1]:.2f}')
 
+#get split array for coss-validation
+folds, most_n = get_split(df, val_split)
+print(f"Validation Splits = {val_split}, Available folds for validation : {most_n}")
+train_fold, val_fold = get_train_val_split(folds, 0)
+
 #get generator for train & val set
-train_gen, val_gen = get_tv_generator(df, grab_mean_std, LABELS, IMGDIR, IMG_H, IMG_W, batch_size = batch_size)
+train_gen, val_gen = get_tv_generator(df, train_fold, val_fold, grab_mean_std, LABELS, IMGDIR, IMG_H, IMG_W, batch_size = batch_size)
 N_train, N_val, N_test = len(train_gen.filenames), len(val_gen.filenames), len(df[df['Is_tv'] == False])
 print(f"train, val, test samples : {N_train}, {N_val}, {N_test}")
 
@@ -59,15 +65,20 @@ x = GlobalAveragePooling2D()(x)
 # and a logistic layer
 predictions = Dense(len(LABELS), activation="sigmoid")(x)
 model = Model(inputs=base_model.input, outputs=predictions)
-model.compile(optimizer='adam', loss=get_weighted_loss(freq_pos, freq_neg))
+model.compile(optimizer='adam', loss=get_weighted_loss(freq_pos, freq_neg), metrics=['accuracy'])
 model.summary()
 
-#history = 
+#define callbacks
+day = str(date.today())
+callbacks = [EarlyStopping(monitor='val_loss', patience=5, verbose=1),
+             ModelCheckpoint('Model_Weights_{day}.h5', save_best_only=True, save_weights_only=True,
+             ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)]
+
 model.fit_generator(train_gen, 
-                              validation_data=val_gen,
-                              steps_per_epoch=N_train/batch_size, 
-                              validation_steps=N_val/batch_size, 
-                              epochs = 3)
+                    validation_data=val_gen,
+                    steps_per_epoch=N_train/batch_size, 
+                    validation_steps=N_val/batch_size, 
+                    epochs = 100)
 
 #plt.plot(history.history['loss'])
 #plt.ylabel("loss")

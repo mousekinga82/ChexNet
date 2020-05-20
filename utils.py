@@ -20,6 +20,24 @@ def leakage_check(df, id_col:str, is_tv_col:str):
     if_leak = len(set_both) == 0
     return if_leak
 
+def get_split(df, val_split, is_tv_col = 'Is_tv'):
+    #how many data in a fold
+    n = int(len(df[df[is_tv_col] == True]) // ( 1 / val_split))
+    #random suffle the train_val set
+    tv_list = df[df['Is_tv']==True]['Image'].values
+    np.random.shuffle(tv_list)
+    #divide into train, val
+    folds = [ tv_list[i:i+n] for i in range(0, len(tv_list), n) ]
+    return folds, int(len(df[df[is_tv_col] == True])/n)
+
+def get_train_val_split(folds, val_index):
+    train_fold = np.array([])
+    for i, f in enumerate(folds):
+        if i == val_index : continue
+        else:
+            train_fold= np.concatenate((train_fold, f))
+    return train_fold, folds[val_index]
+
 #for data normalization
 def get_norm_data(df, image_dir, sample_size = 1000, img_col = 'Image', is_tv_col = 'Is_tv', H=240, W=240):
     #np.random.seed(0)
@@ -30,18 +48,18 @@ def get_norm_data(df, image_dir, sample_size = 1000, img_col = 'Image', is_tv_co
             np.array(image.load_img(os.path.join(image_dir, img), target_size = (H,W))))
     return np.mean(grab_list), np.std(grab_list)
 
-def get_tv_generator(df, grab_mean_std, labels, img_dir, H, W, img_col ='Image', is_tv_col = 'Is_tv', shuffle=True, batch_size=8, seed = 1):
+def get_tv_generator(df, fold_train, fold_val, grab_mean_std, labels, img_dir, H, W, img_col ='Image', is_tv_col = 'Is_tv', shuffle=True, batch_size=8, seed = 1):
     image_train_gen = ImageDataGenerator(
         featurewise_center=True, 
         featurewise_std_normalization=True,
         rotation_range = 100,
         zoom_range = 0.1,
         horizontal_flip = True,
-        validation_split = 0.2)
+        validation_split = 0.)
     image_train_gen.mean, image_train_gen.std = grab_mean_std
     
     train_gen = image_train_gen.flow_from_dataframe(
-        dataframe = df[df['Is_tv'] == True],
+        dataframe = df[df['Image'].isin(fold_train)],
         directory = img_dir,
         x_col = img_col,
         y_col = labels,
@@ -49,8 +67,7 @@ def get_tv_generator(df, grab_mean_std, labels, img_dir, H, W, img_col ='Image',
         batch_size =  batch_size,
         shuffle = shuffle,
         seed = seed,
-        target_size = (W, H),
-        subset = 'training')
+        target_size = (W, H))
     
     image_val_gen = ImageDataGenerator(
         featurewise_center=True, 
@@ -58,7 +75,7 @@ def get_tv_generator(df, grab_mean_std, labels, img_dir, H, W, img_col ='Image',
     image_val_gen.mean, image_val_gen.std = grab_mean_std
     
     val_gen = image_val_gen.flow_from_dataframe(
-        dataframe = df[df['Is_tv']==True & ~df['Image'].isin(train_gen.filenames)],
+        dataframe = df[df['Image'].isin(fold_val)],
         directory = img_dir,
         x_col = img_col,
         y_col = labels,
