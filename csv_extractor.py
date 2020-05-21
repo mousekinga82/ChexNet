@@ -13,7 +13,7 @@ train_val_txt = 'train_val_list.txt'
 test_txt = 'test_list.txt'
 total_csv = 'Data_Entry_2017_v2020.csv'
 imgs_dir = './images'
-save_csv = 'my_list.csv'
+save_csv = 'my_list2.csv'
 
 #Sort the current sample into train_val/test by text file
 my_list = []
@@ -46,12 +46,32 @@ arr_PatientGender = [""] * L
 #separate train_val / test
 arr_is_tv = np.zeros(L, dtype=bool)
 
-dict_label = {'Atelectasis':arr_Atelectasis, 'Cardiomegaly':arr_Cardiomegaly, 'Consolidation':arr_Consolidation,
-              'Edema':arr_Edema, 'Effusion':arr_Effusion, 'Emphysema':arr_Emphysema, 'Fibrosis':arr_Fibrosis,
-              'Hernia':arr_Hernia, 'Infiltration':arr_Infiltration, 'Mass':arr_Mass, 'Nodule':arr_Nodule,
-              'Pleural_Thickening':arr_Pleural_Thickening, 'Pneumonia':arr_Pneumonia, 'Pneumothorax':arr_Pneumothorax,
-              'Patient ID':arr_PatientID, 'Patient Age':arr_PatientAge, 'Patient Gender':arr_PatientGender,
-              'Image': arr_Image, 'Is_tv':arr_is_tv}
+#dict_label = {'Atelectasis':arr_Atelectasis, 'Cardiomegaly':arr_Cardiomegaly, 'Consolidation':arr_Consolidation,
+#              'Edema':arr_Edema, 'Effusion':arr_Effusion, 'Emphysema':arr_Emphysema, 'Fibrosis':arr_Fibrosis,
+#              'Hernia':arr_Hernia, 'Infiltration':arr_Infiltration, 'Mass':arr_Mass, 'Nodule':arr_Nodule,
+#              'Pleural_Thickening':arr_Pleural_Thickening, 'Pneumonia':arr_Pneumonia, 'Pneumothorax':arr_Pneumothorax,
+#              'Patient ID':arr_PatientID, 'Patient Age':arr_PatientAge, 'Patient Gender':arr_PatientGender,
+#              'Image': arr_Image, 'Is_tv':arr_is_tv}
+
+dict_label = {'Cardiomegaly':arr_Cardiomegaly, 
+              'Emphysema':arr_Emphysema, 
+              'Effusion':arr_Effusion, 
+              'Hernia':arr_Hernia, 
+              'Infiltration':arr_Infiltration, 
+              'Mass':arr_Mass, 
+              'Nodule':arr_Nodule, 
+              'Atelectasis':arr_Atelectasis,
+              'Pneumothorax':arr_Pneumothorax,
+              'Pleural_Thickening':arr_Pleural_Thickening, 
+              'Pneumonia':arr_Pneumonia, 
+              'Fibrosis':arr_Fibrosis, 
+              'Edema':arr_Edema, 
+              'Consolidation':arr_Consolidation,
+              'Patient ID':arr_PatientID,
+              'Patient Age':arr_PatientAge,
+              'Patient Gender':arr_PatientGender,
+              'Image':arr_Image,
+              'Is_tv':arr_is_tv}
 
 #Initialization
 tmp_df = None

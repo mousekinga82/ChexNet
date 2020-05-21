@@ -7,11 +7,13 @@ Created on Tue May 19 15:57:28 2020
 import numpy as np
 import os
 import pandas as pd
-from keras.preprocessing import image
-from keras.preprocessing.image import ImageDataGenerator
-import keras.backend as K
+from tensorflow.keras.preprocessing import image
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+import tensoflow.keras.backend as K
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.metrics import roc_auc_score, roc_curve
+import cv2
 
 def leakage_check(df, id_col:str, is_tv_col:str):
     set1 = set(df[df[is_tv_col] == True][id_col].values)
@@ -48,11 +50,11 @@ def get_norm_data(df, image_dir, sample_size = 1000, img_col = 'Image', is_tv_co
             np.array(image.load_img(os.path.join(image_dir, img), target_size = (H,W))))
     return np.mean(grab_list), np.std(grab_list)
 
-def get_tv_generator(df, fold_train, fold_val, grab_mean_std, labels, img_dir, H, W, img_col ='Image', is_tv_col = 'Is_tv', shuffle=True, batch_size=8, seed = 1):
+def get_tv_generator(df, fold_train, fold_val, grab_mean_std, labels, img_dir, H, W, img_col ='Image', shuffle=True, batch_size=8, seed = 1):
     image_train_gen = ImageDataGenerator(
         featurewise_center=True, 
         featurewise_std_normalization=True,
-        rotation_range = 100,
+        rotation_range = 7,
         zoom_range = 0.1,
         horizontal_flip = True,
         validation_split = 0.)
@@ -85,6 +87,24 @@ def get_tv_generator(df, fold_train, fold_val, grab_mean_std, labels, img_dir, H
         seed = seed,
         target_size = (W, H))
     return train_gen, val_gen
+
+def get_test_generator(df, grab_mean_std, labels, img_dir, H, W, img_col = 'Image', is_tv_col = 'Is_tv', batch_size=8, seed = 1):
+    image_test_gen = ImageDataGenerator(
+        featurewise_center=True, 
+        featurewise_std_normalization=True)
+    image_test_gen.mean, image_test_gen.std = grab_mean_std
+    
+    test_gen = image_test_gen.flow_from_dataframe(
+        dataframe = df[df[is_tv_col] == False],
+        directory = img_dir,
+        x_col = img_col,
+        y_col = labels,
+        class_mode = 'raw',
+        batch_size = batch_size,
+        shuffle = False,
+        seed = seed,
+        target_size = (W, H))
+    return test_gen
 
 def plot_class_freq(labels, train_gen):
     plt.xticks(rotation=90)
@@ -142,7 +162,91 @@ def get_weighted_loss(freq_pos, freq_neg, epsilon=1e-7):
         loss = 0.0
         for i in range(len(freq_pos)):
             # for each class, add average weighted loss for that class 
-            loss += -K.mean(freq_pos[i]*y_true[:,i]*K.log(y_pred[:,i] + epsilon) + freq_neg[i]*(1-y_true[:,i])*K.log(1-y_pred[:,i] + epsilon))   #complete this line
+            loss += -K.mean(freq_neg[i]*y_true[:,i]*K.log(y_pred[:,i] + epsilon) + freq_pos[i]*(1-y_true[:,i])*K.log(1-y_pred[:,i] + epsilon))   #complete this line
         return loss
     
     return weighted_loss
+
+def get_roc_curve(labels, predicted_vals, generator):
+    auc_roc_vals = []
+    for i in range(len(labels)):
+        try:
+            gt = generator.labels[:, i]
+            pred = predicted_vals[:, i]
+            auc_roc = roc_auc_score(gt, pred)
+            auc_roc_vals.append(auc_roc)
+            fpr_rf, tpr_rf, _ = roc_curve(gt, pred)
+            plt.figure(1, figsize=(10, 10))
+            plt.plot([0, 1], [0, 1], 'k--')
+            plt.plot(fpr_rf, tpr_rf,
+                     label=labels[i] + " (" + str(round(auc_roc, 3)) + ")")
+            plt.xlabel('False positive rate')
+            plt.ylabel('True positive rate')
+            plt.title('ROC curve')
+            plt.legend(loc='best')
+        except:
+            print(
+                f"Error in generating ROC curve for {labels[i]}. "
+                f"Dataset lacks enough examples."
+            )
+    plt.show()
+    return auc_roc_vals
+
+def load_image(img, image_dir, grab_mean_std, preprocess=True, H=180, W=180):
+    """Load and preprocess image."""
+    img_path = os.path.join(image_dir,img)
+    mean, std = grab_mean_std
+    x = image.load_img(img_path, target_size=(H, W))
+    x = np.array(x)
+    if preprocess:
+        x = x - mean
+        x = x / std
+        x = np.expand_dims(x, axis=0)
+    return x
+
+
+def grad_cam(input_model, image, clss, layer_name, H=180, W=180):
+    """GradCAM method for visualizing input saliency."""
+    y_c = input_model.output[0, clss]
+    conv_output = input_model.get_layer(layer_name).output
+    grads = K.gradients(y_c, conv_output)[0]
+
+    gradient_function = K.function([input_model.input], [conv_output, grads])
+
+    output, grads_val = gradient_function([image])
+    output, grads_val = output[0, :], grads_val[0, :, :, :]
+
+    weights = np.mean(grads_val, axis=(0, 1))
+    cam = np.dot(output, weights)
+
+    # Process CAM
+    cam = cv2.resize(cam, (W, H), cv2.INTER_LINEAR)
+    cam = np.maximum(cam, 0)
+    cam = cam / cam.max()
+    return cam
+
+
+def compute_gradcam(model, grab_mean_std, img, image_dir, df, labels, selected_labels,
+                    layer_name='bn'):
+    preprocessed_input = load_image(img, image_dir, grab_mean_std)
+    predictions = model.predict(preprocessed_input)
+
+    print("Loading original image")
+    plt.figure(figsize=(15, 10))
+    plt.subplot(151)
+    plt.title("Original")
+    plt.axis('off')
+    plt.imshow(load_image(img, image_dir, grab_mean_std, preprocess=False), cmap='gray')
+
+    j = 1
+    for i in range(len(labels)):
+        if labels[i] in selected_labels:
+            print(f"Generating gradcam for class {labels[i]}")
+            gradcam = grad_cam(model, preprocessed_input, i, layer_name)
+            plt.subplot(151 + j)
+            plt.title(f"{labels[i]}: p={predictions[0][i]:.3f}")
+            plt.axis('off')
+            plt.imshow(load_image(img, image_dir, grab_mean_std, preprocess=False),
+                       cmap='gray')
+            plt.imshow(gradcam, cmap='jet', alpha=min(0.5, predictions[0][i]))
+            j += 1

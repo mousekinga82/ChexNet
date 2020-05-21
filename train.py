@@ -7,29 +7,28 @@ Created on Tue May 19 14:52:01 2020
 
 import pandas as pd
 import numpy as np
-import os
-from keras.preprocessing.image import ImageDataGenerator
-from keras.applications.densenet import DenseNet121
-from keras.layers import Dense, GlobalAveragePooling2D
-from keras.models import Model
-from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau, CSVLogger
-import keras.backend as K
-import matplotlib.pyplot as plt
+import tensorflow as tf
+from tensorflow.keras.applications.densenet import DenseNet121
+from tensorflow.keras.layers import Dense, GlobalAveragePooling2D
+from tensorflow.keras.models import Model
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau, CSVLogger
+from tensorflow.keras.optimizers import Adam
+import tensorflow.keras.backend as K
 from datetime import date
 from utils import *
 K.set_image_data_format('channels_last')
 
 IMGDIR = './images'
-IMG_H = 120
-IMG_W = 120
-batch_size = 8
+IMG_H = 180
+IMG_W = 180
+batch_size = 64
 val_split = 0.2
-LABELS = ['Cardiomegaly', 'Emphysema', 'Effusion', 'Hernia', 'Infiltration', 
-          'Mass', 'Nodule', 'Atelectasis','Pneumothorax','Pleural_Thickening', 
-          'Pneumonia', 'Fibrosis', 'Edema', 'Consolidation']
 
 #Load from csv
 df = pd.read_csv('my_list.csv')
+df_key = list(df.keys())
+LABELS = [e for e in df_key if e not in ('Patient ID', 'Patient Age', 'Patient Gender', 'Image', 'Is_tv')]
+
 #leakage check
 if leakage_check(df, 'Patient ID', 'Is_tv'):
     print('Leakage check pass :D')
@@ -58,30 +57,41 @@ freq_pos, freq_neg = compute_class_freqs(train_gen)
 plot_PN_class_ratio(train_gen, LABELS)
 
 # create the base pre-trained model
-base_model = DenseNet121(weights='imagenet', include_top=False)
+base_model = DenseNet121(weights='densenet.hdf5', include_top=False)
 x = base_model.output
 # add a global spatial average pooling layer
 x = GlobalAveragePooling2D()(x)
 # and a logistic layer
 predictions = Dense(len(LABELS), activation="sigmoid")(x)
 model = Model(inputs=base_model.input, outputs=predictions)
-model.compile(optimizer='adam', loss=get_weighted_loss(freq_pos, freq_neg), metrics=['accuracy'])
 model.summary()
+
+#complie the model
+model.compile(optimizer=Adam(learning_rate=0.01), loss=get_weighted_loss(freq_pos, freq_neg), metrics=[tf.keras.metrics.AUC()])
 
 #define callbacks
 day = str(date.today())
 callbacks = [EarlyStopping(monitor='val_loss', patience=5, verbose=1),
-             ModelCheckpoint('Model_Weights_{day}.h5', save_best_only=True, save_weights_only=True),
-             ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)]
+             ModelCheckpoint(f'Model_Weights_{day}.h5', save_best_only=True, save_weights_only=True),
+             ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1, min_lr=1e-8),
+             CSVLogger(f'log_{day}.csv', separator=",", append=False)]
 
+#start training
 model.fit_generator(train_gen, 
                     validation_data=val_gen,
                     steps_per_epoch=N_train/batch_size, 
                     validation_steps=N_val/batch_size, 
-                    epochs = 100)
+                    epochs = 100,
+                    callbacks = callbacks)
 
-#plt.plot(history.history['loss'])
-#plt.ylabel("loss")
-#plt.xlabel("epoch")
-#plt.title("Training Loss Curve")
-#plt.show()
+model.load_weights('Model_Weights_2020-05-21.h5')
+
+#Testing
+test_gen = get_test_generator(df, grab_mean_std, LABELS, IMGDIR, IMG_H, IMG_W)
+predicted_vals = model.predict(test_gen, steps = len(test_gen))
+
+#ROC curve
+auc_rocs = get_roc_curve(LABELS, predicted_vals, test_gen)
+#GradCAM, only show the lables with top 4 AUC
+labels_to_show = np.take(LABELS, np.argsort(auc_rocs)[::-1])[:4]
+compute_gradcam(model, grab_mean_std, '00000096_001.png', IMGDIR, df, LABELS, labels_to_show)    
