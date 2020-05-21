@@ -19,3 +19,5 @@ Before you start, there are steps you should follow:
 
 GradCAM result demo:
 ![GradCAM Image](GradCAM.png)
+
+## For more details, check this [notebook](https://github.com/mousekinga82/ChexNet/blob/master/train.ipynb)
